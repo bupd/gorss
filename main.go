@@ -2,53 +2,45 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
 
-	"github.com/bupd/gorss/internal/database"
-	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi"
 	"github.com/go-chi/cors"
 	"github.com/joho/godotenv"
+
+	"github.com/bupd/gorss/internal/database"
+
 	_ "github.com/lib/pq"
 )
 
-func respondWithError(w http.ResponseWriter, code int, msg string) {
-	if code > 499 {
-		log.Println("Responding with 5XX error:", msg)
-	}
-	type errResponse struct {
-		Error string `json:"error"`
-	}
-	respondWithJson(w, code, errResponse{
-		Error: msg,
-	})
+type apiConfig struct {
+	DB *database.Queries
 }
 
 func main() {
-	godotenv.Load()
-	portString := os.Getenv("PORT")
+	godotenv.Load(".env")
 
-	if portString == "" {
-		log.Fatal("Port is not found in the .env")
+	port := os.Getenv("PORT")
+	if port == "" {
+		log.Fatal("PORT environment variable is not set")
 	}
 
-	DbUrl := os.Getenv("DB_URL")
-	if DbUrl == "" {
-		log.Fatal("DbUrl is not found in the .env")
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL environment variable is not set")
 	}
 
-	conn, err := sql.Open("postgres", DbUrl)
+	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatal("Can't connect to the database.")
+		log.Fatal(err)
 	}
+	dbQueries := database.New(db)
 
 	apiCfg := apiConfig{
-		DB: database.New(conn),
+		DB: dbQueries,
 	}
-
-	fmt.Println("Port:", portString)
 
 	router := chi.NewRouter()
 
@@ -63,19 +55,17 @@ func main() {
 
 	v1Router := chi.NewRouter()
 
+	v1Router.Post("/users", apiCfg.handlerUsersCreate)
+
 	v1Router.Get("/healthz", handlerReadiness)
-	v1Router.Get("/err", handleErr)
-	v1Router.Post("/users", apiCfg.handlerCreateUser)
+	v1Router.Get("/err", handlerErr)
 
 	router.Mount("/v1", v1Router)
 	srv := &http.Server{
+		Addr:    ":" + port,
 		Handler: router,
-		Addr:    ":" + portString,
 	}
 
-	log.Printf("Server starting on port %v", portString)
-	err := srv.ListenAndServe()
-	if err != nil {
-		log.Fatal(err)
-	}
+	log.Printf("Serving on port: %s\n", port)
+	log.Fatal(srv.ListenAndServe())
 }
