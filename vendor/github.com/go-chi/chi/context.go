@@ -45,23 +45,19 @@ var (
 type Context struct {
 	Routes Routes
 
-	// parentCtx is the parent of this one, for using Context as a
-	// context.Context directly. This is an optimization that saves
-	// 1 allocation.
-	parentCtx context.Context
-
 	// Routing path/method override used during the route search.
 	// See Mux#routeHTTP method.
 	RoutePath   string
 	RouteMethod string
 
+	// Routing pattern stack throughout the lifecycle of the request,
+	// across all connected routers. It is a record of all matching
+	// patterns across a stack of sub-routers.
+	RoutePatterns []string
+
 	// URLParams are the stack of routeParams captured during the
 	// routing lifecycle across a stack of sub-routers.
 	URLParams RouteParams
-
-	// Route parameters matched for the current sub-router. It is
-	// intentionally unexported so it can't be tampered.
-	routeParams RouteParams
 
 	// The endpoint routing pattern that matched the request URI path
 	// or `RoutePath` of the current sub-router. This value will update
@@ -69,14 +65,17 @@ type Context struct {
 	// sub-routers.
 	routePattern string
 
-	// Routing pattern stack throughout the lifecycle of the request,
-	// across all connected routers. It is a record of all matching
-	// patterns across a stack of sub-routers.
-	RoutePatterns []string
+	// Route parameters matched for the current sub-router. It is
+	// intentionally unexported so it cant be tampered.
+	routeParams RouteParams
 
 	// methodNotAllowed hint
 	methodNotAllowed bool
-	methodsAllowed   []methodTyp // allowed methods in case of a 405
+
+	// parentCtx is the parent of this one, for using Context as a
+	// context.Context directly. This is an optimization that saves
+	// 1 allocation.
+	parentCtx context.Context
 }
 
 // Reset a routing context to its initial state.
@@ -92,7 +91,6 @@ func (x *Context) Reset() {
 	x.routeParams.Keys = x.routeParams.Keys[:0]
 	x.routeParams.Values = x.routeParams.Values[:0]
 	x.methodNotAllowed = false
-	x.methodsAllowed = x.methodsAllowed[:0]
 	x.parentCtx = nil
 }
 
@@ -114,21 +112,16 @@ func (x *Context) URLParam(key string) string {
 //
 // For example,
 //
-//	func Instrument(next http.Handler) http.Handler {
-//		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-//			next.ServeHTTP(w, r)
-//			routePattern := chi.RouteContext(r.Context()).RoutePattern()
-//			measure(w, r, routePattern)
-//		})
-//	}
+//   func Instrument(next http.Handler) http.Handler {
+//     return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+//       next.ServeHTTP(w, r)
+//       routePattern := chi.RouteContext(r.Context()).RoutePattern()
+//       measure(w, r, routePattern)
+//   	 })
+//   }
 func (x *Context) RoutePattern() string {
 	routePattern := strings.Join(x.RoutePatterns, "")
-	routePattern = replaceWildcards(routePattern)
-	if routePattern != "/" {
-		routePattern = strings.TrimSuffix(routePattern, "//")
-		routePattern = strings.TrimSuffix(routePattern, "/")
-	}
-	return routePattern
+	return replaceWildcards(routePattern)
 }
 
 // replaceWildcards takes a route pattern and recursively replaces all
@@ -137,6 +130,7 @@ func replaceWildcards(p string) string {
 	if strings.Contains(p, "/*/") {
 		return replaceWildcards(strings.Replace(p, "/*/", "/", -1))
 	}
+
 	return p
 }
 
