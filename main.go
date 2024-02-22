@@ -32,14 +32,13 @@ func main() {
 		log.Fatal("DATABASE_URL environment variable is not set")
 	}
 
-	db, err := sql.Open("postgres", dbURL)
+	conn, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal(err)
 	}
-	dbQueries := database.New(db)
 
 	apiCfg := apiConfig{
-		DB: dbQueries,
+		DB: database.New(conn),
 	}
 
 	router := chi.NewRouter()
